@@ -1,276 +1,346 @@
-import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Download, Circle, FileText, Sparkles } from 'lucide-react';
-import ProgressIndicator from '../components/ProgressIndicator';
+import React, { useState, useRef, useEffect } from 'react';
+import { Mic, Square, Download, Wifi, WifiOff } from 'lucide-react';
 
-function RealTimeTranscription() {
+const RealTimeTranscription = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [summary, setSummary] = useState('');
-  const [downloadEnabled, setDownloadEnabled] = useState(false);
-
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('disconnected'); // disconnected, connecting, connected, error
+  const [errorMessage, setErrorMessage] = useState('');
+  
+  const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const recognitionRef = useRef(null);
-  const transcriptRef = useRef('');
+  const mediaStreamRef = useRef(null);
+  
+  // WebSocket URL - Update this to match your backend
+  const WS_URL = 'ws://localhost:8000/ws/transcribe';
+  
+  // Audio recording configuration
+  const TIMESLICE = 500; // Send audio chunks every 500ms
 
-  // Initialize Speech Recognition
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      // recognition.lang = 'en-US';
-      recognition.lang = 'si-LK'
-      recognition.onresult = (event) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' ';
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        if (finalTranscript) {
-          transcriptRef.current += finalTranscript;
-          setTranscript(transcriptRef.current + interimTranscript);
-        } else {
-          setTranscript(transcriptRef.current + interimTranscript);
-        }
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-      };
-
-      recognitionRef.current = recognition;
-    }
-
+    // Cleanup on unmount
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      stopRecording();
     };
   }, []);
 
+  const connectWebSocket = () => {
+    return new Promise((resolve, reject) => {
+      setConnectionStatus('connecting');
+      
+      const ws = new WebSocket(WS_URL);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setConnectionStatus('connected');
+        setErrorMessage('');
+        resolve(ws);
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Handle different message types from backend
+          if (data.type === 'interim') {
+            setInterimTranscript(data.text || '');
+          } else if (data.type === 'final') {
+            setTranscript(prev => prev + (data.text || '') + ' ');
+            setInterimTranscript('');
+          } else if (data.type === 'error') {
+            console.error('Backend error:', data.message);
+            setErrorMessage(data.message || 'Transcription error occurred');
+          }
+        } catch (error) {
+          console.error('Error parsing message:', error);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setConnectionStatus('error');
+        setErrorMessage('WebSocket connection error. Is the server running?');
+        reject(error);
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setConnectionStatus('disconnected');
+        setIsRecording(false);
+      };
+      
+      wsRef.current = ws;
+    });
+  };
+
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      mediaRecorderRef.current.start();
-
-      // Start speech recognition
-      if (recognitionRef.current) {
-        recognitionRef.current.start();
-      }
-
+      // Step 1: Connect to WebSocket
+      await connectWebSocket();
+      
+      // Step 2: Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+        } 
+      });
+      
+      mediaStreamRef.current = stream;
+      
+      // Step 3: Initialize MediaRecorder
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') 
+        ? 'audio/webm' 
+        : 'audio/ogg';
+      
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: mimeType,
+      });
+      
+      mediaRecorderRef.current = mediaRecorder;
+      
+      // Step 4: Handle audio data chunks
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          // Send binary audio data directly over WebSocket
+          wsRef.current.send(event.data);
+        }
+      };
+      
+      mediaRecorder.onerror = (error) => {
+        console.error('MediaRecorder error:', error);
+        setErrorMessage('Recording error occurred');
+        stopRecording();
+      };
+      
+      // Step 5: Start recording with timeslice
+      mediaRecorder.start(TIMESLICE);
       setIsRecording(true);
-      setTranscript('');
-      transcriptRef.current = '';
-      setSummary('');
-      setDownloadEnabled(false);
+      
     } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('Could not access microphone. Please check permissions.');
+      console.error('Error starting recording:', error);
+      
+      if (error.name === 'NotAllowedError') {
+        setErrorMessage('Microphone access denied. Please allow microphone access.');
+      } else if (error.name === 'NotFoundError') {
+        setErrorMessage('No microphone found. Please connect a microphone.');
+      } else {
+        setErrorMessage('Failed to start recording. Please check your connection.');
+      }
+      
+      stopRecording();
     }
   };
 
   const stopRecording = () => {
+    // Stop MediaRecorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
     }
-
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+    
+    // Stop microphone stream
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
     }
-
+    
+    // Close WebSocket
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+    }
+    
     setIsRecording(false);
+    setInterimTranscript('');
+  };
 
-    // Simulate transcript correction and summarization
-    if (transcriptRef.current.trim()) {
-      setIsProcessing(true);
+  const clearTranscript = () => {
+    setTranscript('');
+    setInterimTranscript('');
+    setErrorMessage('');
+  };
 
-      setTimeout(() => {
-        // Simulate transcript correction
-        const correctedTranscript = transcriptRef.current.trim();
-        setTranscript(correctedTranscript);
+  const downloadTranscript = () => {
+    const fullTranscript = transcript + interimTranscript;
+    if (!fullTranscript.trim()) {
+      alert('No transcript to download');
+      return;
+    }
 
-        // Simulate summary generation
-        const generatedSummary = generateMockSummary(correctedTranscript);
-        setSummary(generatedSummary);
+    const blob = new Blob([fullTranscript], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcript-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
-        setIsProcessing(false);
-        setDownloadEnabled(true);
-      }, 2000);
+  const getConnectionStatusColor = () => {
+    switch (connectionStatus) {
+      case 'connected': return 'text-green-600';
+      case 'connecting': return 'text-yellow-600';
+      case 'error': return 'text-red-600';
+      default: return 'text-gray-600';
     }
   };
 
-  const generateMockSummary = (text) => {
-    // Mock summary generation - in real app, this would call your backend API
-    const words = text.split(' ').length;
-    return `Summary of Lecture:\n\nTotal words transcribed: ${words}\n\nKey Points:\n• Main topic discussed\n• Important concepts covered\n• Conclusions reached\n\n[This is a mock summary. In production, this would be generated by your AI model.]`;
-  };
-
-  const downloadFiles = () => {
-    // Download transcript
-    const transcriptBlob = new Blob([transcript], { type: 'text/plain' });
-    const transcriptUrl = URL.createObjectURL(transcriptBlob);
-    const transcriptLink = document.createElement('a');
-    transcriptLink.href = transcriptUrl;
-    transcriptLink.download = `lecture-transcript-${Date.now()}.txt`;
-    document.body.appendChild(transcriptLink);
-    transcriptLink.click();
-    document.body.removeChild(transcriptLink);
-    URL.revokeObjectURL(transcriptUrl);
-
-    // Download summary
-    const summaryBlob = new Blob([summary], { type: 'text/plain' });
-    const summaryUrl = URL.createObjectURL(summaryBlob);
-    const summaryLink = document.createElement('a');
-    summaryLink.href = summaryUrl;
-    summaryLink.download = `lecture-summary-${Date.now()}.txt`;
-    document.body.appendChild(summaryLink);
-    summaryLink.click();
-    document.body.removeChild(summaryLink);
-    URL.revokeObjectURL(summaryUrl);
+  const getConnectionStatusIcon = () => {
+    return connectionStatus === 'connected' || connectionStatus === 'connecting' 
+      ? <Wifi size={16} /> 
+      : <WifiOff size={16} />;
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-cyan-50 p-4 sm:p-6 lg:p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-500 rounded-full mb-4">
-            <Mic className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Real-Time Transcription</h1>
-          <p className="text-sm sm:text-base text-gray-600">Record your lecture and get instant transcription</p>
+    <div className="mx-auto p-6 bg-white min-h-screen">
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-8 shadow-lg">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">
+          Real-time Voice Transcription
+        </h1>
+        {/* <p className="text-center text-gray-600 mb-6 text-sm">
+          WebSocket + MediaRecorder Architecture
+        </p> */}
+
+        {/* Connection Status */}
+        <div className={`flex items-center justify-center gap-2 mb-6 ${getConnectionStatusColor()}`}>
+          {getConnectionStatusIcon()}
+          <span className="font-medium capitalize">{connectionStatus}</span>
         </div>
 
-        {/* Control Card */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 mb-6">
-          {/* Recording Status */}
-          {isRecording && (
-            <div className="mb-6 bg-gradient-to-r from-red-50 to-pink-50 rounded-xl p-4 border border-red-200">
-              <div className="flex items-center justify-center gap-3">
-                <Circle className="w-3 h-3 text-red-500 fill-current animate-pulse" />
-                <span className="text-sm sm:text-base font-semibold text-red-600">Recording in progress...</span>
-              </div>
-            </div>
-          )}
-
-          {/* Control Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
-            {!isRecording ? (
-              <button
-                onClick={startRecording}
-                className="w-full sm:w-auto flex items-center justify-center gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all"
-              >
-                <Mic className="w-5 h-5" />
-                Start Recording
-              </button>
-            ) : (
-              <button
-                onClick={stopRecording}
-                className="w-full sm:w-auto flex items-center justify-center gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all"
-              >
-                <Square className="w-5 h-5" />
-                Stop Recording
-              </button>
-            )}
-
-            <button
-              onClick={downloadFiles}
-              disabled={!downloadEnabled}
-              className={`w-full sm:w-auto flex items-center justify-center gap-3 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-semibold shadow-lg transition-all ${downloadEnabled
-                ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white hover:shadow-xl hover:scale-105'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-            >
-              <Download className="w-5 h-5" />
-              Download
-            </button>
-          </div>
-
-          {/* Processing */}
-          {isProcessing && (
-            <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-200">
-              <ProgressIndicator message="Processing transcript..." />
-            </div>
-          )}
-        </div>
-
-        {/* Transcript Card */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-blue-500" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-800">Live Transcript</h3>
-              <p className="text-xs sm:text-sm text-gray-500">
-                {transcript ? `${transcript.split(' ').length} words` : 'Waiting for audio...'}
-              </p>
-            </div>
-          </div>
-          <div className="bg-gray-50 rounded-xl p-4 sm:p-6 min-h-48 max-h-64 sm:max-h-96 overflow-y-auto">
-            {transcript ? (
-              <p className="text-sm sm:text-base text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {transcript}
-              </p>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-40 text-center">
-                <Circle className="w-12 h-12 text-gray-300 mb-3" />
-                <p className="text-sm sm:text-base text-gray-400">Click "Start Recording" to begin</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Summary Card */}
-        {summary && (
-          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl shadow-lg p-6 sm:p-8 border border-blue-100">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg sm:text-xl font-bold text-gray-800">Summary</h3>
-                <p className="text-xs sm:text-sm text-gray-600">{summary.split(' ').length} words</p>
-              </div>
-            </div>
-            <div className="bg-white rounded-xl p-4 sm:p-6">
-              <p className="text-sm sm:text-base text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {summary}
-              </p>
-            </div>
+        {/* Error Message */}
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            <p className="font-semibold">Error</p>
+            <p>{errorMessage}</p>
           </div>
         )}
-      </div>
-      {/* Info Card */}
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <h3 className="font-semibold text-blue-900 mb-2">ℹ️ How it works:</h3>
-        <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-          <li>Click "Start Recording" and allow microphone access</li>
-          <li>Speak clearly into your microphone</li>
-          <li>See real-time transcription in the box above</li>
-          <li>Click "Stop Recording" when finished</li>
-          <li>Download your notes as a text file</li>
-        </ul>
-        <p className="text-xs text-blue-700 mt-3">
-          <strong>Note:</strong> This demo uses mock data. In production, integrate with speech-to-text APIs
-          (OpenAI Whisper, Google Speech-to-Text, AssemblyAI) and AI summarization services.
-        </p>
+
+        {/* Recording Controls */}
+        <div className="flex justify-center items-center gap-4 mb-8">
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isRecording && connectionStatus !== 'connected'}
+            className={`
+              flex items-center gap-3 px-8 py-4 rounded-full font-semibold text-lg transition-all duration-300 transform hover:scale-105 shadow-lg
+              ${isRecording 
+                ? 'bg-red-500 hover:bg-red-600 text-white' 
+                : 'bg-blue-500 hover:bg-blue-600 text-white'
+              }
+              ${isRecording && connectionStatus !== 'connected' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+            `}
+          >
+            {isRecording ? (
+              <>
+                <Square size={24} />
+                Stop Recording
+              </>
+            ) : (
+              <>
+                <Mic size={24} />
+                Start Recording
+              </>
+            )}
+          </button>
+
+          {(transcript || interimTranscript) && (
+            <button
+              onClick={clearTranscript}
+              className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors duration-200"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Recording Status */}
+        {isRecording && (
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+            <span className="text-red-600 font-medium">Recording... Speak now</span>
+            <span className="text-gray-500 text-sm ml-2">
+              (sending {TIMESLICE}ms chunks)
+            </span>
+          </div>
+        )}
+
+        {/* Transcript Box */}
+        <div className="bg-white rounded-lg shadow-inner border-2 border-gray-200 p-6 mb-6">
+          <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <Mic size={20} />
+            Live Transcript
+          </h2>
+          
+          <div className="min-h-[300px] max-h-[400px] overflow-y-auto bg-gray-50 rounded-lg p-4 border">
+            {!transcript && !interimTranscript ? (
+              <p className="text-gray-400 italic text-center py-8">
+                Click "Start Recording" to begin transcription...
+              </p>
+            ) : (
+              <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">
+                <span className="text-gray-900">{transcript}</span>
+                <span className="text-blue-600 italic">{interimTranscript}</span>
+                {isRecording && <span className="inline-block w-2 h-5 bg-blue-500 ml-1 animate-pulse"></span>}
+              </div>
+            )}
+          </div>
+          
+          <div className="text-sm text-gray-500 mt-2">
+            <span className="text-gray-900 font-medium">Final text</span> | 
+            <span className="text-blue-600 font-medium italic ml-1">Interim text</span>
+          </div>
+        </div>
+
+        {/* Download Button */}
+        <div className="flex justify-center">
+          <button
+            onClick={downloadTranscript}
+            disabled={!transcript && !interimTranscript}
+            className={`
+              flex items-center gap-3 px-8 py-3 rounded-lg font-medium transition-all duration-200 shadow-md
+              ${(transcript || interimTranscript)
+                ? 'bg-green-500 hover:bg-green-600 text-white transform hover:scale-105' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }
+            `}
+          >
+            <Download size={20} />
+            Download Notes
+          </button>
+        </div>
+
+        {/* Technical Info */}
+        {/* <div className="mt-8 p-4 bg-blue-100 rounded-lg border border-blue-200">
+          <h3 className="font-semibold text-blue-800 mb-2">Architecture:</h3>
+          <ul className="text-blue-700 text-sm space-y-1">
+            <li>• <strong>MediaRecorder</strong>: Captures audio in {TIMESLICE}ms chunks</li>
+            <li>• <strong>WebSocket</strong>: Real-time binary audio streaming to server</li>
+            <li>• <strong>Backend ASR</strong>: Python server processes audio with AI model</li>
+            <li>• <strong>Live Updates</strong>: Receives interim and final transcriptions</li>
+          </ul>
+          <p className="text-blue-600 text-xs mt-3">
+            Server URL: <code className="bg-blue-200 px-2 py-1 rounded">{WS_URL}</code>
+          </p>
+        </div> */}
+
+        {/* Instructions */}
+        <div className="mt-4 p-4 bg-green-100 rounded-lg border border-green-200">
+          <h3 className="font-semibold text-green-800 mb-2">How to use:</h3>
+          <ul className="text-green-700 text-sm space-y-1">
+            <li>• Ensure your Python backend is running on {WS_URL}</li>
+            <li>• Click "Start Recording" and allow microphone access</li>
+            <li>• Speak clearly - audio streams to backend every {TIMESLICE}ms</li>
+            <li>• See real-time transcription from your ASR model</li>
+            <li>• Click "Stop Recording" when finished</li>
+            <li>• Download your transcript as a text file</li>
+          </ul>
+        </div>
       </div>
     </div>
   );
-}
+};
 
 export default RealTimeTranscription;
