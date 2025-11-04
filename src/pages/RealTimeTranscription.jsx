@@ -7,14 +7,14 @@ const RealTimeTranscription = () => {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('disconnected'); // disconnected, connecting, connected, error
   const [errorMessage, setErrorMessage] = useState('');
-  
+
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
-  
+
   // WebSocket URL - Update this to match your backend
-  const WS_URL = 'ws://localhost:8000/ws/transcribe';
-  
+  const WS_URL = 'ws://localhost:8000/ws/audio';
+
   // Audio recording configuration
   const TIMESLICE = 500; // Send audio chunks every 500ms
 
@@ -28,20 +28,20 @@ const RealTimeTranscription = () => {
   const connectWebSocket = () => {
     return new Promise((resolve, reject) => {
       setConnectionStatus('connecting');
-      
+
       const ws = new WebSocket(WS_URL);
-      
+
       ws.onopen = () => {
         console.log('WebSocket connected');
         setConnectionStatus('connected');
         setErrorMessage('');
         resolve(ws);
       };
-      
+
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          
+
           // Handle different message types from backend
           if (data.type === 'interim') {
             setInterimTranscript(data.text || '');
@@ -56,20 +56,20 @@ const RealTimeTranscription = () => {
           console.error('Error parsing message:', error);
         }
       };
-      
+
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         setConnectionStatus('error');
         setErrorMessage('WebSocket connection error. Is the server running?');
         reject(error);
       };
-      
+
       ws.onclose = () => {
         console.log('WebSocket disconnected');
         setConnectionStatus('disconnected');
         setIsRecording(false);
       };
-      
+
       wsRef.current = ws;
     });
   };
@@ -78,59 +78,60 @@ const RealTimeTranscription = () => {
     try {
       // Step 1: Connect to WebSocket
       await connectWebSocket();
-      
+
       // Step 2: Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           sampleRate: 16000,
           echoCancellation: true,
           noiseSuppression: true,
-        } 
+        }
       });
-      
+
       mediaStreamRef.current = stream;
-      
+
       // Step 3: Initialize MediaRecorder
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') 
-        ? 'audio/webm' 
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
         : 'audio/ogg';
-      
+
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: mimeType,
       });
-      
+
       mediaRecorderRef.current = mediaRecorder;
-      
+
       // Step 4: Handle audio data chunks
-      mediaRecorder.ondataavailable = (event) => {
+      mediaRecorder.ondataavailable = async (event) => {
         if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
           // Send binary audio data directly over WebSocket
-          wsRef.current.send(event.data);
+          const arrayBuffer = await event.data.arrayBuffer();
+          wsRef.current.send(arrayBuffer);
         }
       };
-      
+
       mediaRecorder.onerror = (error) => {
         console.error('MediaRecorder error:', error);
         setErrorMessage('Recording error occurred');
         stopRecording();
       };
-      
+
       // Step 5: Start recording with timeslice
       mediaRecorder.start(TIMESLICE);
       setIsRecording(true);
-      
+
     } catch (error) {
       console.error('Error starting recording:', error);
-      
+
       if (error.name === 'NotAllowedError') {
         setErrorMessage('Microphone access denied. Please allow microphone access.');
       } else if (error.name === 'NotFoundError') {
         setErrorMessage('No microphone found. Please connect a microphone.');
       } else {
-        setErrorMessage('Failed to start recording. Please check your connection.');
+        setErrorMessage('Failed to start recording. Please check your connection.' + error);
       }
-      
+
       stopRecording();
     }
   };
@@ -140,18 +141,18 @@ const RealTimeTranscription = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
-    
+
     // Stop microphone stream
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
       mediaStreamRef.current = null;
     }
-    
+
     // Close WebSocket
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.close();
     }
-    
+
     setIsRecording(false);
     setInterimTranscript('');
   };
@@ -190,8 +191,8 @@ const RealTimeTranscription = () => {
   };
 
   const getConnectionStatusIcon = () => {
-    return connectionStatus === 'connected' || connectionStatus === 'connecting' 
-      ? <Wifi size={16} /> 
+    return connectionStatus === 'connected' || connectionStatus === 'connecting'
+      ? <Wifi size={16} />
       : <WifiOff size={16} />;
   };
 
@@ -226,8 +227,8 @@ const RealTimeTranscription = () => {
             disabled={isRecording && connectionStatus !== 'connected'}
             className={`
               flex items-center gap-3 px-8 py-4 rounded-full font-semibold text-lg transition-all duration-300 transform hover:scale-105 shadow-lg
-              ${isRecording 
-                ? 'bg-red-500 hover:bg-red-600 text-white' 
+              ${isRecording
+                ? 'bg-red-500 hover:bg-red-600 text-white'
                 : 'bg-blue-500 hover:bg-blue-600 text-white'
               }
               ${isRecording && connectionStatus !== 'connected' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
@@ -273,7 +274,7 @@ const RealTimeTranscription = () => {
             <Mic size={20} />
             Live Transcript
           </h2>
-          
+
           <div className="min-h-[300px] max-h-[400px] overflow-y-auto bg-gray-50 rounded-lg p-4 border">
             {!transcript && !interimTranscript ? (
               <p className="text-gray-400 italic text-center py-8">
@@ -287,9 +288,9 @@ const RealTimeTranscription = () => {
               </div>
             )}
           </div>
-          
+
           <div className="text-sm text-gray-500 mt-2">
-            <span className="text-gray-900 font-medium">Final text</span> | 
+            <span className="text-gray-900 font-medium">Final text</span> |
             <span className="text-blue-600 font-medium italic ml-1">Interim text</span>
           </div>
         </div>
@@ -302,7 +303,7 @@ const RealTimeTranscription = () => {
             className={`
               flex items-center gap-3 px-8 py-3 rounded-lg font-medium transition-all duration-200 shadow-md
               ${(transcript || interimTranscript)
-                ? 'bg-green-500 hover:bg-green-600 text-white transform hover:scale-105' 
+                ? 'bg-green-500 hover:bg-green-600 text-white transform hover:scale-105'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }
             `}

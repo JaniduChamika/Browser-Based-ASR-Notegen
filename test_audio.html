@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>🎤 Mic Test – Frontend vs Backend</title>
+</head>
+<body>
+  <h2>🎙️ Test Mic: Compare Frontend vs Backend Recording</h2>
+  <button id="startBtn">Start Recording</button>
+  <button id="stopBtn" disabled>Stop Recording</button>
+  <p id="status"></p>
+
+  <script>
+    let recorder;
+    let ws;
+    let recordedChunks = [];
+
+    document.getElementById("startBtn").onclick = async () => {
+      recordedChunks = [];
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      ws = new WebSocket("ws://localhost:8001/ws/audio");
+
+      ws.onopen = () => {
+        console.log("✅ WebSocket connected");
+        document.getElementById("status").innerText = "Recording started...";
+      };
+
+      ws.onclose = () => console.log("❌ WebSocket closed");
+
+      recorder = new MediaRecorder(stream, { mimeType: "audio/webm; codecs=opus" });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data);
+
+          // Send chunk to backend
+          if (ws.readyState === WebSocket.OPEN) {
+            event.data.arrayBuffer().then(buffer => {
+              ws.send(buffer);
+            });
+          }
+        }
+      };
+
+      recorder.start(500); // collect every 500 ms
+      document.getElementById("startBtn").disabled = true;
+      document.getElementById("stopBtn").disabled = false;
+    };
+
+    document.getElementById("stopBtn").onclick = () => {
+      recorder.stop();
+      ws.close();
+
+      document.getElementById("status").innerText = "Recording stopped. Saving file...";
+      document.getElementById("startBtn").disabled = false;
+      document.getElementById("stopBtn").disabled = true;
+
+      // Combine and download local recording
+      const blob = new Blob(recordedChunks, { type: "audio/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "frontend_recording.webm";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      document.getElementById("status").innerText = "✅ File saved as frontend_recording.webm";
+    };
+  </script>
+</body>
+</html>
