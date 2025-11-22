@@ -1,0 +1,56 @@
+# llm_handler.py
+import os
+from openai import OpenAI
+from dotenv import load_dotenv
+from config import *
+
+
+class LLMHandler:
+    def __init__(self):
+        # Load environment variables
+        load_dotenv()
+        self.api_key = os.environ.get("OPENROUTER_API_KEY")
+        self.client = None
+
+        if self.api_key:
+            try:
+                self.client = OpenAI(
+                    base_url=OPENROUTER_BASE_URL,
+                    api_key=self.api_key,
+                )
+            except Exception as e:
+                print(f"Error initializing LLM Client: {e}")
+
+    def correct_transcript(self, raw_text):
+        """Sends the raw text to the LLM for correction."""
+
+        # 1. Validation
+        if not raw_text or not raw_text.strip():
+            return None
+
+        if not self.client:
+            print("LLM Client is not initialized (Missing API Key?).")
+            return raw_text
+
+        try:
+            # 2. Call the API
+            print(f"Sending text to LLM ({len(raw_text)} chars)...")
+            completion = self.client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "http://localhost/sinhala-asr",
+                    "X-Title": "Sinhala ASR Corrector"
+                },
+                model=LLM_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": CORRECTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": raw_text},
+                ],
+            )
+
+            corrected_text = completion.choices[0].message.content.strip()
+            print("LLM Correction received.")
+            return corrected_text
+
+        except Exception as e:
+            print(f"LLM Error: {e}")
+            return raw_text  # Return original text if LLM fails

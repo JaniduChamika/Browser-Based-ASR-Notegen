@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.disconnected { background: #ff9800; color: white; }
+        .status.connecting { background: #2196F3; color: white; }
+        .status.connected { background: #4CAF50; color: white; }
+        .status.error { background: #f44336; color: white; }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            margin: 10px 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background: #4CAF50;
+            color: white;
+            transition: all 0.3s;
+        }
+        button:hover { background: #45a049; transform: scale(1.05); }
+        button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        #log {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 3px 0;
+        }
+        .log-success { color: #00ff00; }
+        .log-error { color: #ff4444; }
+        .log-info { color: #4da6ff; }
+        .log-warn { color: #ffaa00; }
+        input {
+            padding: 10px;
+            font-size: 16px;
+            width: 100%;
+            margin: 10px 0;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        .info-box {
+            background: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #2196F3;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Connection Test</h1>
+        
+        <div class="info-box">
+            <strong>Instructions:</strong>
+            <ol>
+                <li>Make sure your backend is running: <code>python test_server.py</code></li>
+                <li>Check the backend URL below (default: ws://localhost:8000/ws/audio)</li>
+                <li>Click "Test Connection" to verify WebSocket works</li>
+                <li>Click "Test with Audio" to simulate audio streaming</li>
+            </ol>
+        </div>
+
+        <label for="wsUrl"><strong>WebSocket URL:</strong></label>
+        <input type="text" id="wsUrl" value="ws://localhost:8000/ws/audio">
+        
+        <div id="status" class="status disconnected">🔴 Disconnected</div>
+        
+        <div>
+            <button id="testBtn" onclick="testConnection()">Test Connection</button>
+            <button id="audioBtn" onclick="testWithAudio()" disabled>Test with Audio</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let isRecording = false;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStatus(text, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = text;
+            statusDiv.className = `status ${className}`;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function testConnection() {
+            const url = document.getElementById('wsUrl').value;
+            const testBtn = document.getElementById('testBtn');
+            const audioBtn = document.getElementById('audioBtn');
+            
+            testBtn.disabled = true;
+            log('🔵 Testing WebSocket connection...', 'info');
+            log(`📍 URL: ${url}`, 'info');
+            updateStatus('🟡 Connecting...', 'connecting');
+
+            try {
+                // Close existing connection
+                if (ws) {
+                    ws.close();
+                }
+
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    log('✅ WebSocket CONNECTED!', 'success');
+                    updateStatus('🟢 Connected', 'connected');
+                    testBtn.disabled = false;
+                    audioBtn.disabled = false;
+                };
+
+                ws.onmessage = (event) => {
+                    log(`📨 Received: ${event.data}`, 'success');
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`   Type: ${data.type}`, 'info');
+                        log(`   Text: ${data.text || data.message || 'N/A'}`, 'info');
+                    } catch (e) {
+                        log(`   Raw message: ${event.data}`, 'warn');
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    log(`❌ WebSocket ERROR: ${error}`, 'error');
+                    log('   Check if backend is running on correct port', 'warn');
+                    updateStatus('🔴 Error', 'error');
+                    testBtn.disabled = false;
+                    audioBtn.disabled = true;
+                };
+
+                ws.onclose = (event) => {
+                    log(`🔌 WebSocket CLOSED (code: ${event.code})`, 'warn');
+                    updateStatus('🔴 Disconnected', 'disconnected');
+                    testBtn.disabled = false;
+                    audioBtn.disabled = true;
+                };
+
+            } catch (error) {
+                log(`❌ Connection failed: ${error.message}`, 'error');
+                updateStatus('🔴 Error', 'error');
+                testBtn.disabled = false;
+            }
+        }
+
+        async function testWithAudio() {
+            const audioBtn = document.getElementById('audioBtn');
+            
+            if (isRecording) {
+                // Stop recording
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+                audioBtn.textContent = 'Test with Audio';
+                isRecording = false;
+                log('🛑 Stopped audio streaming', 'warn');
+                return;
+            }
+
+            try {
+                log('🎤 Requesting microphone access...', 'info');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                    }
+                });
+
+                log('✅ Microphone access granted', 'success');
+
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? 'audio/webm;codecs=opus'
+                    : 'audio/webm';
+
+                log(`🎵 Using MIME type: ${mimeType}`, 'info');
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+                let chunkCount = 0;
+
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (event.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
+                        chunkCount++;
+                        log(`📤 Sending audio chunk #${chunkCount} (${event.data.size} bytes)`, 'info');
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        ws.send(arrayBuffer);
+                    }
+                };
+
+                mediaRecorder.start(500); // 500ms chunks
+                isRecording = true;
+                audioBtn.textContent = 'Stop Audio Test';
+                log('🎙️ Recording started! Speak now...', 'success');
+
+            } catch (error) {
+                log(`❌ Audio test failed: ${error.message}`, 'error');
+                if (error.name === 'NotAllowedError') {
+                    log('   Please allow microphone access', 'warn');
+                }
+            }
+        }
+
+        // Test backend health on load
+        window.onload = async () => {
+            log('🌐 Testing backend health...', 'info');
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                if (response.ok) {
+                    log('✅ Backend is running and healthy!', 'success');
+                } else {
+                    log('⚠️ Backend responded but not healthy', 'warn');
+                }
+            } catch (error) {
+                log('❌ Cannot reach backend - is it running?', 'error');
+                log('   Run: python test_server.py', 'warn');
+            }
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# --- Web Server Framework ---
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# --- AI & Machine Learning ---
+# We explicitly use NumPy < 2.0 because Python 3.11 supports it perfectly,
+# and it is much more stable for 'noisereduce' and 'webrtcvad' than NumPy 2.0.
+numpy<2.0
+
+# PyTorch (Standard stable version)
+torch>=2.2.0
+
+# Transformers (For the Whisper model)
+transformers>=4.39.0
+accelerate>=0.28.0
+
+# --- Audio Processing ---
+# CRITICAL for Windows: Use 'webrtcvad-wheels' to avoid C++ errors
+webrtcvad-wheels>=2.0.10
+noisereduce>=3.0.0
+
+# --- LLM Client ---
+openai>=1.12.0

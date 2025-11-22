@@ -19,7 +19,7 @@
       recordedChunks = [];
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      ws = new WebSocket("ws://localhost:8001/ws/audio");
+      ws = new WebSocket("ws://localhost:8000/ws/audio");
 
       ws.onopen = () => {
         console.log("✅ WebSocket connected");
