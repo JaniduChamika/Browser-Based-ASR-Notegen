@@ -13,43 +13,44 @@ function AudioClipTranscription() {
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file) {
-      if (file.type.startsWith('audio/') || file.name.endsWith('.mp3') || file.name.endsWith('.wav') || file.name.endsWith('.m4a')) {
-        setAudioFile(file);
-        setTranscript('');
-        setSummary('');
-        setDownloadEnabled(false);
-        processAudioFile(file);
-      } else {
-        alert('Please select a valid audio file (MP3, WAV, M4A, etc.).');
-      }
+      setAudioFile(file);
+      setTranscript('');
+      setSummary('');
+      setDownloadEnabled(false);
+      processAudioFile(file);
     }
   };
 
-  const processAudioFile = (file) => {
+  const processAudioFile = async (file) => {
     setIsProcessing(true);
+    
+    const formData = new FormData();
+    formData.append('file', file);
 
-    // Simulate file processing - in production, this would upload to your backend
-    // and call a transcription API (Whisper, Google Speech-to-Text, etc.)
-    setTimeout(() => {
-      // Mock transcript generation
-      const mockTranscript = generateMockTranscript(file.name);
-      setTranscript(mockTranscript);
+    try {
+      // Call Python Backend
+      const response = await fetch('http://localhost:8000/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-      // Mock summary generation
-      const mockSummary = generateMockSummary(mockTranscript);
-      setSummary(mockSummary);
+      if (!response.ok) throw new Error('Upload failed');
 
+      const data = await response.json();
+      
+      if (data.error) {
+        alert(`Error: ${data.error}`);
+      } else {
+        setTranscript(data.transcript);
+        setSummary(data.summary);
+        setDownloadEnabled(true);
+      }
+    } catch (error) {
+      console.error("Error uploading:", error);
+      alert("Failed to process audio file. Is the backend running?");
+    } finally {
       setIsProcessing(false);
-      setDownloadEnabled(true);
-    }, 3000);
-  };
-
-  const generateMockTranscript = (filename) => {
-    return `Transcript of ${filename}:\n\nThis is a mock transcript generated for demonstration purposes. In a production environment, this would be the actual transcription of your audio file processed through a speech-to-text API like OpenAI Whisper, Google Speech-to-Text, or AssemblyAI.\n\nThe transcription would contain all the spoken words from your lecture or audio clip, properly formatted and corrected for accuracy.\n\nExample content with timestamps:\n\n[00:00:00] Welcome to today's lecture on machine learning fundamentals.\n\n[00:00:15] Today we'll be covering three main topics: supervised learning, unsupervised learning, and reinforcement learning.\n\n[00:00:45] Let's start with supervised learning. Supervised learning is a type of machine learning where we train a model using labeled data.\n\n[00:01:30] The key characteristic of supervised learning is that we have both input features and corresponding output labels in our training data.\n\n[00:02:15] Common examples include classification problems like spam detection and regression problems like house price prediction.\n\n[00:03:00] Moving on to unsupervised learning, this approach works with unlabeled data.\n\n[00:03:30] The model tries to find patterns and structures in the data without being told what to look for.\n\n[00:04:15] Clustering algorithms like K-means and dimensionality reduction techniques like PCA are examples of unsupervised learning.\n\n[00:05:00] Finally, reinforcement learning is about training agents to make decisions through trial and error.\n\n[00:05:45] The agent learns by receiving rewards or penalties based on its actions in an environment.\n\n[00:06:30] This concludes our overview of the three main types of machine learning. Thank you for your attention.\n\nThis transcript would be much longer in a real scenario, containing all the detailed content from your audio file.`;
-  };
-
-  const generateMockSummary = (transcript) => {
-    return `Summary of Lecture:\n\nDuration: Approximately 6-7 minutes\n\nMain Topic: Machine Learning Fundamentals\n\nKey Points:\n\n1. Three Types of Machine Learning Covered:\n   • Supervised Learning\n   • Unsupervised Learning  \n   • Reinforcement Learning\n\n2. Supervised Learning:\n   • Uses labeled training data\n   • Includes both input features and output labels\n   • Examples: spam detection, house price prediction\n   • Applications in classification and regression problems\n\n3. Unsupervised Learning:\n   • Works with unlabeled data\n   • Discovers patterns without explicit guidance\n   • Examples: K-means clustering, PCA dimensionality reduction\n   • Used for finding hidden structures in data\n\n4. Reinforcement Learning:\n   • Agent-based learning through trial and error\n   • Learns from rewards and penalties\n   • Makes sequential decisions in an environment\n\nConclusion:\n• Comprehensive overview of fundamental ML approaches\n• Each type serves different use cases and problem domains\n• Foundation for understanding advanced ML concepts\n\n[This is a mock summary. In production, this would be generated by your AI model (GPT-4, Claude, etc.) based on the actual transcription.]`;
+    }
   };
 
   const downloadFiles = () => {
@@ -66,19 +67,20 @@ function AudioClipTranscription() {
     document.body.removeChild(transcriptLink);
     URL.revokeObjectURL(transcriptUrl);
 
-    // Small delay before downloading second file
-    setTimeout(() => {
-      // Download summary
-      const summaryBlob = new Blob([summary], { type: 'text/plain' });
-      const summaryUrl = URL.createObjectURL(summaryBlob);
-      const summaryLink = document.createElement('a');
-      summaryLink.href = summaryUrl;
-      summaryLink.download = `summary-${timestamp}.txt`;
-      document.body.appendChild(summaryLink);
-      summaryLink.click();
-      document.body.removeChild(summaryLink);
-      URL.revokeObjectURL(summaryUrl);
-    }, 100);
+    // Download summary
+    if (summary) {
+        setTimeout(() => {
+            const summaryBlob = new Blob([summary], { type: 'text/plain' });
+            const summaryUrl = URL.createObjectURL(summaryBlob);
+            const summaryLink = document.createElement('a');
+            summaryLink.href = summaryUrl;
+            summaryLink.download = `summary-${timestamp}.txt`;
+            document.body.appendChild(summaryLink);
+            summaryLink.click();
+            document.body.removeChild(summaryLink);
+            URL.revokeObjectURL(summaryUrl);
+        }, 100);
+    }
   };
 
   const triggerFileInput = () => {
@@ -123,10 +125,7 @@ function AudioClipTranscription() {
                 Click to upload audio file
               </p>
               <p className="text-sm text-gray-500">
-                Supports MP3, WAV, M4A, AAC, OGG, FLAC and other audio formats
-              </p>
-              <p className="text-xs text-gray-400 mt-2">
-                Maximum file size: 100MB
+                Supports MP3, WAV, M4A, AAC, OGG, FLAC
               </p>
             </div>
           ) : (
@@ -146,7 +145,6 @@ function AudioClipTranscription() {
                 <button
                   onClick={removeFile}
                   className="ml-4 p-2 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors"
-                  title="Remove file"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -158,7 +156,7 @@ function AudioClipTranscription() {
         {/* Processing Indicator */}
         {isProcessing && (
           <div className="mb-6 bg-indigo-50 rounded-lg border border-indigo-200">
-            <ProgressIndicator message="Transcribing audio and generating summary..." />
+            <ProgressIndicator message="Uploading, Converting & Transcribing..." />
           </div>
         )}
 
@@ -187,9 +185,6 @@ function AudioClipTranscription() {
               <label className="block text-sm font-semibold text-gray-700">
                 Transcript
               </label>
-              <span className="text-xs text-gray-500">
-                {transcript.split(' ').length} words
-              </span>
             </div>
             <div className="bg-gray-50 rounded-lg p-4 min-h-64 max-h-96 overflow-y-auto border border-gray-200">
               <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
@@ -206,9 +201,6 @@ function AudioClipTranscription() {
               <label className="block text-sm font-semibold text-gray-700">
                 Summary & Key Points
               </label>
-              <span className="text-xs text-gray-500">
-                {summary.split(' ').length} words
-              </span>
             </div>
             <div className="bg-indigo-50 rounded-lg p-4 min-h-32 border border-indigo-200">
               <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
@@ -217,21 +209,6 @@ function AudioClipTranscription() {
             </div>
           </div>
         )}
-      </div>
-
-      {/* Info Card */}
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <h3 className="font-semibold text-blue-900 mb-2">ℹ️ How it works:</h3>
-        <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-          <li>Upload your audio lecture file (any common audio format)</li>
-          <li>The system will transcribe the entire audio content</li>
-          <li>AI will generate a comprehensive summary with key points</li>
-          <li>Download both transcript and summary as text files</li>
-        </ul>
-        <p className="text-xs text-blue-700 mt-3">
-          <strong>Note:</strong> This demo uses mock data. In production, integrate with speech-to-text APIs 
-          (OpenAI Whisper, Google Speech-to-Text, AssemblyAI) and AI summarization services.
-        </p>
       </div>
     </div>
   );

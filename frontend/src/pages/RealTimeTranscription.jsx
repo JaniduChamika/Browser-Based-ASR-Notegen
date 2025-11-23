@@ -8,15 +8,14 @@ const RealTimeTranscription = () => {
   const [connectionStatus, setConnectionStatus] = useState('disconnected'); // disconnected, connecting, connected, error
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Refs for technical objects
   const wsRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const processorRef = useRef(null);
   const mediaStreamRef = useRef(null);
 
-  // WebSocket URL - Update this to match your backend
+  // WebSocket URL
   const WS_URL = 'ws://localhost:8000/ws/audio';
-
-  // Audio recording configuration
-  const TIMESLICE = 500; // Send audio chunks every 500ms
 
   useEffect(() => {
     // Cleanup on unmount
@@ -42,12 +41,17 @@ const RealTimeTranscription = () => {
         try {
           const data = JSON.parse(event.data);
 
-          // Handle different message types from backend
-          if (data.type === 'interim') {
-            setInterimTranscript(data.text || '');
-          } else if (data.type === 'final') {
+          // Handle backend message types
+          if (data.type === 'final') {
+             // Append to final transcript
             setTranscript(prev => prev + (data.text || '') + ' ');
-            setInterimTranscript('');
+            setInterimTranscript(''); // Clear interim
+          } else if (data.type === 'interim') {
+            // Update interim (grey text)
+            setInterimTranscript(data.text || '');
+          } else if (data.type === 'status') {
+             // Optional: handle status updates like "Listening..."
+             console.log("Status:", data.text);
           } else if (data.type === 'error') {
             console.error('Backend error:', data.message);
             setErrorMessage(data.message || 'Transcription error occurred');
@@ -76,14 +80,16 @@ const RealTimeTranscription = () => {
 
   const startRecording = async () => {
     try {
-      // Step 1: Connect to WebSocket
+      setErrorMessage('');
+      
+      // Step 1: Connect to WebSocket first
       await connectWebSocket();
 
       // Step 2: Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: 16000,
+          sampleRate: 16000, // Desired sample rate for Whisper
           echoCancellation: true,
           noiseSuppression: true,
         }
@@ -91,34 +97,42 @@ const RealTimeTranscription = () => {
 
       mediaStreamRef.current = stream;
 
-      // Step 3: Initialize MediaRecorder
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/ogg';
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: mimeType,
+      // Step 3: Initialize Audio Context (Raw PCM processing)
+      // We use AudioContext instead of MediaRecorder to get raw Int16 bytes
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 16000,
       });
+      audioContextRef.current = audioContext;
 
-      mediaRecorderRef.current = mediaRecorder;
+      const source = audioContext.createMediaStreamSource(stream);
+      
+      // Create ScriptProcessor (Buffer size 4096 ≈ 256ms latency)
+      // Input 1 channel, Output 1 channel
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
 
-      // Step 4: Handle audio data chunks
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          // Send binary audio data directly over WebSocket
-          const arrayBuffer = await event.data.arrayBuffer();
-          wsRef.current.send(arrayBuffer);
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      // Step 4: Handle audio processing events
+      processor.onaudioprocess = (e) => {
+        // Ensure socket is open before sending
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const inputData = e.inputBuffer.getChannelData(0);
+          
+          // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
+          // This is what the Python backend expects
+          const buffer = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            let s = Math.max(-1, Math.min(1, inputData[i]));
+            buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          
+          // Send binary data
+          wsRef.current.send(buffer);
         }
       };
 
-      mediaRecorder.onerror = (error) => {
-        console.error('MediaRecorder error:', error);
-        setErrorMessage('Recording error occurred');
-        stopRecording();
-      };
-
-      // Step 5: Start recording with timeslice
-      mediaRecorder.start(TIMESLICE);
       setIsRecording(true);
 
     } catch (error) {
@@ -129,7 +143,7 @@ const RealTimeTranscription = () => {
       } else if (error.name === 'NotFoundError') {
         setErrorMessage('No microphone found. Please connect a microphone.');
       } else {
-        setErrorMessage('Failed to start recording. Please check your connection.' + error);
+        setErrorMessage('Failed to start recording: ' + error.message);
       }
 
       stopRecording();
@@ -137,15 +151,21 @@ const RealTimeTranscription = () => {
   };
 
   const stopRecording = () => {
-    // Stop MediaRecorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-
-    // Stop microphone stream
+    // Stop Microphone Stream
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
       mediaStreamRef.current = null;
+    }
+
+    // Disconnect Audio Nodes
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
     }
 
     // Close WebSocket
@@ -154,7 +174,7 @@ const RealTimeTranscription = () => {
     }
 
     setIsRecording(false);
-    setInterimTranscript('');
+    // We do NOT clear transcript here so user can see result
   };
 
   const clearTranscript = () => {
@@ -202,10 +222,7 @@ const RealTimeTranscription = () => {
         <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">
           Real-time Voice Transcription
         </h1>
-        {/* <p className="text-center text-gray-600 mb-6 text-sm">
-          WebSocket + MediaRecorder Architecture
-        </p> */}
-
+        
         {/* Connection Status */}
         <div className={`flex items-center justify-center gap-2 mb-6 ${getConnectionStatusColor()}`}>
           {getConnectionStatusIcon()}
@@ -224,14 +241,13 @@ const RealTimeTranscription = () => {
         <div className="flex justify-center items-center gap-4 mb-8">
           <button
             onClick={isRecording ? stopRecording : startRecording}
-            disabled={isRecording && connectionStatus !== 'connected'}
             className={`
               flex items-center gap-3 px-8 py-4 rounded-full font-semibold text-lg transition-all duration-300 transform hover:scale-105 shadow-lg
               ${isRecording
                 ? 'bg-red-500 hover:bg-red-600 text-white'
                 : 'bg-blue-500 hover:bg-blue-600 text-white'
               }
-              ${isRecording && connectionStatus !== 'connected' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+              ${!isRecording && connectionStatus === 'connecting' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
             `}
           >
             {isRecording ? (
@@ -262,9 +278,6 @@ const RealTimeTranscription = () => {
           <div className="flex items-center justify-center gap-2 mb-6">
             <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
             <span className="text-red-600 font-medium">Recording... Speak now</span>
-            <span className="text-gray-500 text-sm ml-2">
-              (sending {TIMESLICE}ms chunks)
-            </span>
           </div>
         )}
 
@@ -283,15 +296,15 @@ const RealTimeTranscription = () => {
             ) : (
               <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">
                 <span className="text-gray-900">{transcript}</span>
-                <span className="text-blue-600 italic">{interimTranscript}</span>
+                <span className="text-blue-600 italic ml-1">{interimTranscript}</span>
                 {isRecording && <span className="inline-block w-2 h-5 bg-blue-500 ml-1 animate-pulse"></span>}
               </div>
             )}
           </div>
 
           <div className="text-sm text-gray-500 mt-2">
-            <span className="text-gray-900 font-medium">Final text</span> |
-            <span className="text-blue-600 font-medium italic ml-1">Interim text</span>
+             <span className="text-gray-900 font-medium">Final text</span> |
+             <span className="text-blue-600 font-medium italic ml-1">Interim/Processing</span>
           </div>
         </div>
 
@@ -313,27 +326,13 @@ const RealTimeTranscription = () => {
           </button>
         </div>
 
-        {/* Technical Info */}
-        {/* <div className="mt-8 p-4 bg-blue-100 rounded-lg border border-blue-200">
-          <h3 className="font-semibold text-blue-800 mb-2">Architecture:</h3>
-          <ul className="text-blue-700 text-sm space-y-1">
-            <li>• <strong>MediaRecorder</strong>: Captures audio in {TIMESLICE}ms chunks</li>
-            <li>• <strong>WebSocket</strong>: Real-time binary audio streaming to server</li>
-            <li>• <strong>Backend ASR</strong>: Python server processes audio with AI model</li>
-            <li>• <strong>Live Updates</strong>: Receives interim and final transcriptions</li>
-          </ul>
-          <p className="text-blue-600 text-xs mt-3">
-            Server URL: <code className="bg-blue-200 px-2 py-1 rounded">{WS_URL}</code>
-          </p>
-        </div> */}
-
         {/* Instructions */}
         <div className="mt-4 p-4 bg-green-100 rounded-lg border border-green-200">
           <h3 className="font-semibold text-green-800 mb-2">How to use:</h3>
           <ul className="text-green-700 text-sm space-y-1">
-            <li>• Ensure your Python backend is running on {WS_URL}</li>
+            <li>• Ensure your Python backend is running on localhost:8000</li>
             <li>• Click "Start Recording" and allow microphone access</li>
-            <li>• Speak clearly - audio streams to backend every {TIMESLICE}ms</li>
+            <li>• Speak clearly - audio streams to backend in real-time</li>
             <li>• See real-time transcription from your ASR model</li>
             <li>• Click "Stop Recording" when finished</li>
             <li>• Download your transcript as a text file</li>

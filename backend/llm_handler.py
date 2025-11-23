@@ -1,13 +1,11 @@
-# llm_handler.py
+# backend/llm_handler.py
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from config import *
 
-
 class LLMHandler:
     def __init__(self):
-        # Load environment variables
         load_dotenv()
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
         self.client = None
@@ -22,7 +20,7 @@ class LLMHandler:
                 print(f"Error initializing LLM Client: {e}")
 
     def correct_transcript(self, raw_text):
-        """Sends the raw text to the LLM for correction."""
+        """Handles both Correction and Summarization based on prefix."""
 
         # 1. Validation
         if not raw_text or not raw_text.strip():
@@ -33,24 +31,35 @@ class LLMHandler:
             return raw_text
 
         try:
-            # 2. Call the API
-            print(f"Sending text to LLM ({len(raw_text)} chars)...")
+            # 2. Determine Task
+            if raw_text.startswith("SUMMARIZE: "):
+                # Summarization Mode
+                actual_text = raw_text.replace("SUMMARIZE: ", "")
+                system_prompt = "You are a helpful assistant. Summarize the following Sinhala text into clear bullet points. Keep the summary in Sinhala."
+                user_content = actual_text
+            else:
+                # Correction Mode (Default)
+                system_prompt = CORRECTION_SYSTEM_PROMPT
+                user_content = raw_text
+
+            # 3. Call API
+            print(f"Sending text to LLM ({len(user_content)} chars)...")
             completion = self.client.chat.completions.create(
                 extra_headers={
                     "HTTP-Referer": "http://localhost/sinhala-asr",
-                    "X-Title": "Sinhala ASR Corrector"
+                    "X-Title": "Sinhala ASR"
                 },
                 model=LLM_MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": CORRECTION_SYSTEM_PROMPT},
-                    {"role": "user", "content": raw_text},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
                 ],
             )
 
-            corrected_text = completion.choices[0].message.content.strip()
-            print("LLM Correction received.")
-            return corrected_text
+            result_text = completion.choices[0].message.content.strip()
+            print("LLM Result received.")
+            return result_text
 
         except Exception as e:
             print(f"LLM Error: {e}")
-            return raw_text  # Return original text if LLM fails
+            return raw_text

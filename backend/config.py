@@ -7,7 +7,7 @@ import torch
 SAMPLE_RATE = 16000  # Whisper expects 16kHz
 CHUNK_DURATION = 0.03  # 30ms for VAD frames
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)
-VAD_MODE = 2  # 0-3, aggressiveness of VAD
+VAD_MODE = 3  # 0-3, aggressiveness of VAD
 FRAME_DURATION_MS = 30  # WebRTC VAD frame size in ms (10, 20, or 30)
 FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION_MS / 1000)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -15,12 +15,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # --- NEW: NOISE GATE ---
 # Audio is between 0.0 and 1.0.
 # 0.01 is a good starting point. Increase to 0.02 or 0.03 if you have a noisy fan.
-MIN_VOLUME_THRESHOLD = 0.02 
+MIN_VOLUME_THRESHOLD = 0.03 
 
 # --- Speech Detection Parameters ---
-MIN_SPEECH_DURATION = 0.5  # Minimum speech duration (seconds)
+MIN_SPEECH_DURATION = 0.8  # Minimum speech duration (seconds)
 MIN_SPEECH_FRAMES = int(MIN_SPEECH_DURATION * SAMPLE_RATE)
-MAX_SILENCE_DURATION = 0.6  # Max silence before ending speech (seconds)
+MAX_SILENCE_DURATION = 0.8  # Max silence before ending speech (seconds)
 MAX_SILENCE_FRAMES = int(MAX_SILENCE_DURATION * SAMPLE_RATE)
 
 # --- Concurrency Parameters ---
