@@ -19,7 +19,7 @@ class LLMHandler:
             except Exception as e:
                 print(f"Error initializing LLM Client: {e}")
 
-    def correct_transcript(self, raw_text):
+    def correct_transcript(self, raw_text,task):
         """Handles both Correction and Summarization based on prefix."""
 
         # 1. Validation
@@ -32,11 +32,10 @@ class LLMHandler:
 
         try:
             # 2. Determine Task
-            if raw_text.startswith("SUMMARIZE: "):
-                # Summarization Mode
-                actual_text = raw_text.replace("SUMMARIZE: ", "")
-                system_prompt = "You are a helpful assistant. Summarize the following Sinhala text into clear bullet points. Keep the summary in Sinhala."
-                user_content = actual_text
+            if task == "summarize":
+                # Summarization Mode           
+                system_prompt = SUMMARIZATION_SYSTEM_PROMPT
+                user_content = raw_text
             else:
                 # Correction Mode (Default)
                 system_prompt = CORRECTION_SYSTEM_PROMPT
