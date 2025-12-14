@@ -45,10 +45,18 @@ class LLMHandler:
             print(f"Sending text to LLM ({len(user_content)} chars)...")
             completion = self.client.chat.completions.create(
                 extra_headers={
-                    "HTTP-Referer": "http://localhost/sinhala-asr",
+                    "HTTP-Referer": "http://localhost/sinhala-asr-final",
                     "X-Title": "Sinhala ASR"
                 },
+                extra_body={
+                    "provider": {
+                      "order": ["Google"],
+                       "allow_fallbacks": False
+                        }
+                },
                 model=LLM_MODEL_NAME,
+                max_tokens=1024,
+                temperature=0,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content},

@@ -32,40 +32,15 @@ OVERLAP_FRAMES = int(OVERLAP_DURATION * SAMPLE_RATE)
 # --- LLM Configuration ---
 # We use Mistral because it is free and has fewer moderation issues than Llama
 # LLM_MODEL_NAME = "mistralai/mistral-7b-instruct:free"
-LLM_MODEL_NAME = "x-ai/grok-4.1-fast:free"
+LLM_MODEL_NAME = "google/gemini-2.5-flash"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # The Prompt for the LLM
-CORRECTION_SYSTEM_PROMPT = """
-You are an expert Sinhala editor and proofreader with a strong background in Political Science.
-Your task is to correct a raw, real-time transcription of spoken Sinhala,
-which is on the topic of Political Science.
-
-Follow these rules strictly:
-1.  **Correct Spelling:** Fix any Sinhala spelling mistakes (e.g., "වරදි" -> "වැරදි").
-
-2.  **Fix Pronunciation Errors:** The ASR may write a phonetically similar but incorrect word.
-    Change it to the nearest correct word that makes sense in the context.
-    (e.g., ASR: "විශිය" -> Correct: "විෂය").
-
-3.  **Contextual Word Correction:** The ASR may produce words that are phonetically plausible
-    but are invalid or meaningless in the context (e.g., "ආක්පිතියි").
-    First, analyze the entire speech flow to understand the topic. Then,
-    use your **Political Science knowledge** to change these words to the
-    *most logical and meaningful word* that fits the context.
-    (e.g., "රාජ්‍ය ආණ්ඩු ක්‍රම ආක්පිතියි." -> "රාජ්‍ය ආණ්ඩු ක්‍රම ආකෘතියකි.")
-
-4.  **Remove Filler Words:** Remove all filler words, "dumb text," and stutters
-    (e.g., "අ...", "ම්ම්...", "ආ...", "හ්ම්", "ත්ත්ත්", "ත්ත්", etc.).
-
-5.  **Fix Grammar:** Correct basic grammatical errors to ensure the text is readable.
-
-6.  **Preserve Meaning:** Do NOT add new information or change the original speaker's intended meaning.
-    Your goal is to clarify, not to rewrite.
-
-7.  **RESPONSE:** Respond ONLY with the corrected, clean Sinhala text.
-    Do not add any pre-amble, explanation, or chat text like "Here is the correction:".
-    Just give the text.
+CORRECTION_SYSTEM_PROMPT = """You are an expert Sinhala Political Science editor. Correct the provided ASR transcript:
+Fix Errors: Correct spelling and phonetic errors. Replace meaningless words with the most logical Political Science term based on context (e.g., 'ආක්පිතියි' → 'ආකෘතියකි').
+Clean: Remove all filler sounds (e.g., 'අ...', 'ම්ම්') and stutters.
+Constraint: Preserve the exact original meaning. Do not add new information.
+Output: Provide ONLY the corrected Sinhala text with no introductory or concluding remarks.
 """
 
 SUMMARIZATION_SYSTEM_PROMPT = """

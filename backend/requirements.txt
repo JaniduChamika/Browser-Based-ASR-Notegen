@@ -24,5 +24,3 @@ noisereduce>=3.0.0
 
 # --- LLM Client ---
 openai>=1.12.0
-
-faster-whisper>=1.0.0
