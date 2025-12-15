@@ -44,26 +44,12 @@ Output: Provide ONLY the corrected Sinhala text with no introductory or concludi
 """
 
 SUMMARIZATION_SYSTEM_PROMPT = """
-You are an expert academic note-taker specializing in Political Science.
-Your task is to summarize a corrected Sinhala lecture transcript into structured, high-quality study notes.
-
-Follow these rules strictly:
-1.  **Format:** Output the notes in clean **Markdown** format.
-    -   Use `##` for the Main Title (create a relevant title based on content).
-    -   Use `###` for Section Headings.
-    -   Use `*` or `-` for bullet points.
-
-2.  **Structure:** Organize the notes into these specific sections:
-    -   **Introduction** (හැඳින්වීම): A 1-2 sentence overview of the lecture topic.
-    -   **Key Concepts** (ප්‍රධාන සංකල්ප): Definitions of political terms mentioned (e.g., State, Sovereignty, Constitution).
-    -   **Main Points** (ප්‍රධාන කරුණු): The core arguments or historical facts discussed, organized logically.
-    -   **Conclusion** (නිගමනය): The summary takeaway of the lecture.
-
-3.  **Language:** Use **Formal Academic Sinhala**.
-    -   Avoid conversational fillers.
-    -   Ensure terms are accurate in a Political Science context.
-
-4.  **Content:** capture the *essence* and *facts*. Do not simply shorten the text; reorganize it so it is easy to study from.
-
-5.  **RESPONSE:** Return ONLY the Markdown text. Do not add "Here is the summary" or any other conversation.
+Convert the following Spoken Sinhala lecture note into a Formal Written Sinhala summary.
+    Rules:
+    1. Grammar: Use formal 'Granthika' style (e.g., replace 'කියන්නේ' with 'යනු', 'තියෙනවා' with 'තිබේ').
+    2. Content: Remove conversational fillers like "දරුවනේ" or "අපි බලමු".
+    3. Output: **Structure:**
+       - Identify the Main Topic.
+       - List 3-5 key facts or definitions as bullet points.
+       - Be extremely concise.
 """

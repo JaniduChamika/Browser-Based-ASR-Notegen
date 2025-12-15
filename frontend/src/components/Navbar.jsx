@@ -26,7 +26,7 @@ function Navbar({ currentPage, setCurrentPage }) {
               Real-Time
             </button>
             
-            <button
+            {/* <button
               onClick={() => setCurrentPage('clip')}
               className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors duration-200 ${
                 currentPage === 'clip'
@@ -36,7 +36,7 @@ function Navbar({ currentPage, setCurrentPage }) {
             >
               <Upload className="w-5 h-5 mr-2" />
               Upload Clip
-            </button>
+            </button> */}
           </div>
         </div>
       </div>
