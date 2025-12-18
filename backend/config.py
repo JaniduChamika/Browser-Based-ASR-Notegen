@@ -24,7 +24,7 @@ MAX_SILENCE_DURATION = 0.8  # Max silence before ending speech (seconds)
 MAX_SILENCE_FRAMES = int(MAX_SILENCE_DURATION * SAMPLE_RATE)
 
 # --- Concurrency Parameters ---
-MAX_SPEECH_DURATION = 5.0 # Max speech before forcing transcript (seconds)
+MAX_SPEECH_DURATION = 10.0 # Max speech before forcing transcript (seconds)
 MAX_SPEECH_FRAMES = int(MAX_SPEECH_DURATION * SAMPLE_RATE)
 OVERLAP_DURATION = 1.0 # Overlap for concurrent chunks (seconds)
 OVERLAP_FRAMES = int(OVERLAP_DURATION * SAMPLE_RATE)
