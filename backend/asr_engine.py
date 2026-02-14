@@ -10,6 +10,7 @@ import time
 import re
 import torch
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from pyctcdecode import build_ctcdecoder
 from config import *
 
 
@@ -20,6 +21,7 @@ class AsrEngine:
         self.vad = webrtcvad.Vad(VAD_MODE)
         self.processor = None
         self.model = None
+        self.decoder = None # NEW: CTC Decoder
 
         self.input_buffer = []
         self.audio_buffer = []
@@ -40,6 +42,23 @@ class AsrEngine:
             self.model.to("cpu")
             self.model.eval()
             print(f"✅ [Engine] Wav2Vec2 model loaded successfully.")
+
+            # --- NEW: Load N-gram Decoder ---
+            if os.path.exists(NGRAM_MODEL_PATH):
+                print(f"⏳ [Engine] Loading N-gram Model ({NGRAM_MODEL_PATH})...")
+                vocab = self.processor.tokenizer.get_vocab()
+                sorted_vocab = [k for k, v in sorted(vocab.items(), key=lambda item: item[1])]
+                
+                self.decoder = build_ctcdecoder(
+                    labels=sorted_vocab,
+                    kenlm_model_path=NGRAM_MODEL_PATH,
+                    alpha=LM_ALPHA,
+                    beta=LM_BETA,
+                )
+                print(f"✅ [Engine] Decoder with N-gram LM loaded successfully.")
+            else:
+                print(f"⚠️ [Engine] N-gram model not found at {NGRAM_MODEL_PATH}. Using standard greedy decoding.")
+            
             return True
         except Exception as e:
             print(f"❌ [Engine] Error loading model: {e}")
@@ -182,8 +201,15 @@ class AsrEngine:
                 with torch.no_grad():
                     logits = self.model(input_values).logits
                 
-                predicted_ids = torch.argmax(logits, dim=-1)
-                full_text = self.processor.batch_decode(predicted_ids)[0]
+                # --- NEW: N-gram Decoding ---
+                if self.decoder:
+                    # pyctcdecode expects logits as numpy array [time_steps, vocab_size]
+                    logits_np = logits.cpu().numpy()[0] 
+                    full_text = self.decoder.decode(logits_np, beam_width=BEAM_WIDTH)
+                else:
+                    # Fallback to standard greedy decoding
+                    predicted_ids = torch.argmax(logits, dim=-1)
+                    full_text = self.processor.batch_decode(predicted_ids)[0]
                 
                 full_text = self.clean_text(full_text)
                 

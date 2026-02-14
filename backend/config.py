@@ -12,6 +12,12 @@ FRAME_DURATION_MS = 30  # WebRTC VAD frame size in ms (10, 20, or 30)
 FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION_MS / 1000)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+# --- N-gram Language Model ---
+NGRAM_MODEL_PATH = "political_science_v3.binary"
+BEAM_WIDTH = 200 
+LM_ALPHA = 0.9 # Weight for the Language Model
+LM_BETA = 2.5 # Bonus for word insertion
+
 # --- NEW: NOISE GATE ---
 # Audio is between 0.0 and 1.0.
 # 0.01 is a good starting point. Increase to 0.02 or 0.03 if you have a noisy fan.

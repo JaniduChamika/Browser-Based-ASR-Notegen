@@ -24,3 +24,7 @@ noisereduce>=3.0.0
 
 # --- LLM Client ---
 openai>=1.12.0
+
+# --- N-gram Decoding ---
+pyctcdecode>=0.5.0
+https://github.com/kpu/kenlm/archive/master.zip
