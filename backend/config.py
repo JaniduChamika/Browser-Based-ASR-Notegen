@@ -56,6 +56,7 @@ Convert the following Spoken Sinhala lecture note into a Formal Written Sinhala 
     2. Content: Remove conversational fillers like "දරුවනේ" or "අපි බලමු".
     3. Output: **Structure:**
        - Identify the Main Topic.
+       - Use Markdown '#' for the Main Topic.(# Heading 1, ## heading 2, ### heading 3, //ITALIC//, * bullets points.)
        - List 3-5 key facts or definitions as bullet points.
        - Be extremely concise.
 """

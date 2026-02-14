@@ -329,7 +329,7 @@ const RealTimeTranscription = () => {
         {/* Download Button */}
         <div className="flex justify-center">
           <button
-            onClick={() => generateWordDocument(summaryText + '\n # Transcript \n //' + correctedText+"//")}
+            onClick={() => generateWordDocument(summaryText + '\n # Transcript \n //' + correctedText + "//")}
             disabled={!transcript && !interimTranscript}
             className={`
               flex items-center gap-3 px-8 py-3 rounded-lg font-medium transition-all duration-200 shadow-md
