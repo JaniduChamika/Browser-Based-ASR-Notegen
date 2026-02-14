@@ -29,3 +29,4 @@ political_science_v3.binary
 backend/__pycache__/asr_engine.cpython-311.pyc
 backend/__pycache__/asr_engine.cpython-311.pyc
 backend/__pycache__/llm_handler.cpython-311.pyc
+backend/__pycache__/config.cpython-311.pyc

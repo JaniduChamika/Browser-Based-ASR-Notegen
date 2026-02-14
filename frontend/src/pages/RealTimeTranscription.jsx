@@ -3,6 +3,8 @@ import { Mic, Square, Download, Wifi, WifiOff, Sparkles, FileText, Loader2 } fro
 import ReactMarkdown from 'react-markdown';
 import "../App.css"
 import generateWordDocument from '../components/NoteDownload';
+import { TRANSCRIPTION_CHUNK_SIZE } from '../config';
+
 const RealTimeTranscription = () => {
   const [isRecording, setIsRecording] = useState(false);
 
@@ -10,7 +12,6 @@ const RealTimeTranscription = () => {
   const [transcript, setTranscript] = useState('');
   // const [transcript, setTranscript] = useState('අද නොම ඔබ සමඟ බිදාගන්නේ දීශපාලන විද්‍යාව ලූකික් ලොකේ මූලික පියවා. ඇන් මෙය කිසිම නිශ්චිත විෂයක් නොවේ. එය අපගේ ජීවිතේ සෑම අයියි. ඉතේ සෑම අන්සේයකටම බලපාන සමාජ්‍ය බලවේග, බලධාරිං සතීරණ ගැනීම් වල ඉංහිංවළ රහස් විස්තර විශයක් ඒ පමණක් නොවෙයි. අපගී රටි ඉතිහාසී සිට නූතන ලෝකය දක්වා මිනිස්සුන්ගේ අනාගත් ඉස්සුන්ගේ අනාගතය හැඩ ගස්සන බල වීගිය ත්ත්ත් යොක් ප්‍රතියි. ඔබ කවදා හා සිට්වද ඔබ චන්දයක් තැබීම නොබේ ජීවිතය මග පෙන්වන සම්පත් අධ්‍යාපනය සෞඛි සේවා සෞඛ්‍ය සේභාවන් වෙනස් වෙන්නෙ කිහිත් කොහොමද කියලා. නැතම් ලෝක ලෝක නායකයංගේ තිර්ණය වලි අපගේ දෛනික ජීමිතියට බල බලපෑම් ඇතිවන්නේ කෙහෙම කොහොමද කිය මේ දේශපාලන විද්‍යාව එස් යල්ල පැහැදිරි කරනව. එය රාජ්‍යයන්ගේ බලගැන් වී ප්‍රහදී සිහත් ජාත්‍යනතර සබඳතා සබද තා සහ සමාධි සාධ්‍යාරණත්තේ අධී ගැන ස්වාභයනු ඉසා පලනු ත්ත්ත් යොක් ප්‍රත්ත් ත්ත්ත් යොක් ප්‍රත්ත් ත්ත්ත් යොක් ප්‍රත්ත් ත්ත්ත් යොක් ප්‍රත්ත් අපි මොලිම බලමු දේශ්‍යපාලන විද්‍යාවෙ මූලික සංකල්ප ත්ත්ත් ත්ත්ත් යොක් ප්‍රතියි.');
   const [interimTranscript, setInterimTranscript] = useState('');
-
 
   // AI Feature States
   const [correctedText, setCorrectedText] = useState('');
@@ -27,6 +28,9 @@ const RealTimeTranscription = () => {
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const mediaStreamRef = useRef(null);
+
+  // NEW: Buffer for chunk-based processing
+  const transcriptBufferRef = useRef([]);
 
   const WS_URL = 'ws://localhost:8000/ws/audio';
 
@@ -51,8 +55,23 @@ const RealTimeTranscription = () => {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'final') {
-            setTranscript(prev => prev + (data.text || '') + ' ');
+            const newText = data.text || '';
+            setTranscript(prev => prev + newText + ' ');
             setInterimTranscript('');
+
+            // --- Chunk Processing Logic ---
+            if (newText.trim()) {
+              const words = newText.trim().split(/\s+/);
+              transcriptBufferRef.current.push(...words);
+
+              if (transcriptBufferRef.current.length >= TRANSCRIPTION_CHUNK_SIZE) {
+                // Extract chunk
+                const chunk = transcriptBufferRef.current.splice(0, TRANSCRIPTION_CHUNK_SIZE);
+                const chunkText = chunk.join(' ');
+                processChunkWithAI(chunkText);
+              }
+            }
+
           } else if (data.type === 'interim') {
             setInterimTranscript(data.text || '');
           } else if (data.type === 'error') {
@@ -129,12 +148,44 @@ const RealTimeTranscription = () => {
     if (audioContextRef.current) audioContextRef.current.close();
     if (wsRef.current) wsRef.current.close();
     setIsRecording(false);
+
+    // Flush remaining buffer
+    if (transcriptBufferRef.current.length > 0) {
+      const remainingText = transcriptBufferRef.current.join(' ');
+      processChunkWithAI(remainingText);
+      transcriptBufferRef.current = []; // Clear buffer
+    }
   };
 
   // --- NEW: AI Processing Functions ---
 
+  const processChunkWithAI = async (chunkText) => {
+    if (!chunkText || !chunkText.trim()) return;
+
+    try {
+      const response = await fetch('http://localhost:8000/process-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: chunkText, task: 'correct' }),
+      });
+
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        setCorrectedText(prev => prev + (prev ? ' ' : '') + data.result);
+      } else {
+        console.error('AI Chunk Error:', data.message);
+      }
+    } catch (error) {
+      console.error('Failed to process chunk:', error);
+    }
+  };
+
   const processTextWithAI = async (task) => {
-    const fullText = transcript + interimTranscript;
+    // If getting summary, use the full corrected text if available, otherwise raw transcript
+    const fullText = task === 'summarize' && correctedText
+      ? correctedText
+      : transcript + interimTranscript;
 
     if (!fullText.trim()) return;
 
@@ -152,6 +203,7 @@ const RealTimeTranscription = () => {
 
       if (data.status === 'success') {
         if (task === 'correct') {
+          // Manual full correction (optional override)
           setCorrectedText(data.result);
         } else if (task === 'summarize') {
           setSummaryText(data.result);
@@ -178,6 +230,7 @@ const RealTimeTranscription = () => {
     setCorrectedText('');
     setSummaryText('');
     setErrorMessage('');
+    transcriptBufferRef.current = [];
   };
 
   // const downloadTranscript = () => {
@@ -232,7 +285,7 @@ const RealTimeTranscription = () => {
           </button>
 
           {/* AI Correct Button */}
-          <button
+          {/* <button
             onClick={handleCorrection}
             disabled={isRecording || (!transcript && !interimTranscript) || isProcessingAI}
             className={`
@@ -245,7 +298,7 @@ const RealTimeTranscription = () => {
           >
             {isProcessingAI && activeAITask === 'correct' ? <Loader2 className="animate-spin" size={20} /> : <Sparkles size={20} />}
             Correct Transcript
-          </button>
+          </button> */}
 
           {/* Summarize Button */}
           <button
