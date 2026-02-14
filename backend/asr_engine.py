@@ -43,6 +43,15 @@ class AsrEngine:
             self.model.eval()
             print(f"✅ [Engine] Wav2Vec2 model loaded successfully.")
 
+            # --- NEW: Quantization (Speedup for CPU) ---
+            print("⚡ [Engine] Applying Dynamic Quantization (FP32 -> INT8)...")
+            self.model = torch.quantization.quantize_dynamic(
+                self.model, 
+                {torch.nn.Linear}, 
+                dtype=torch.qint8
+            )
+
+
             # --- NEW: Load N-gram Decoder ---
             if os.path.exists(NGRAM_MODEL_PATH):
                 print(f"⏳ [Engine] Loading N-gram Model ({NGRAM_MODEL_PATH})...")
